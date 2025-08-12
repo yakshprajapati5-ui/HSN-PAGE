@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Created by Yaksh Prajapati</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    body.login-bg {
+      background: url('bg.jpg') no-repeat center center fixed;
+      background-size: cover;
+    }
+    .login-container, .main-container {
+      max-width: 1100px;
+      margin: 50px auto;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+      display: none;
+    }
+    .active {
+      display: block;
+    }
+    h1 {
+      text-align: center;
+      color: #0c2340;
+      margin-bottom: 25px;
+    }
+    input[type=text], input[type=password] {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    input[type=submit], button {
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th {
+      background: #343a40;
+      color: #fff;
+      padding: 10px;
+    }
+    td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+    .top-logos {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .top-logos img {
+      height: 60px;
+    }
+    .footer-note {
+      margin-top: 40px;
+      text-align: center;
+      font-style: italic;
+      color: #888;
+    }
+  </style>
+</head>
+<body class="login-bg">
+
+<div class="login-container active" id="loginPage">
+  <h1>🔐 Login to Continue</h1>
+  <label>ID:</label>
+  <input type="text" id="loginId" placeholder="Enter ID (e.g., ADMIN)" />
+  <label>Password:</label>
+  <input type="password" id="loginPass" placeholder="Enter Password" />
+  <input type="submit" value="Login" onclick="validateLogin()" />
+</div>
+
+<div class="main-container" id="mainPage">
+  <div class="top-logos">
+    <img src="yr_logo.png" alt="Logo Left">
+    <h1>HSN Summary Report</h1>
+    <img src="yr_logo.png" alt="Logo Right">
+  </div>
+
+  <input type="file" id="excelFile" accept=".xlsx, .xls" />
+  <button onclick="confirmExport()">Export to Excel</button>
+
+  <div id="summaryOutput"></div>
+  <div id="taxSummarySections"></div>
+  <div class="footer-note">Created by Yaksh Prajapati</div>
+</div>
+
+<script>
+function validateLogin() {
+  const id = document.getElementById("loginId").value;
+  const pass = document.getElementById("loginPass").value;
+  if (id === "ADMIN" && pass === "Yaksh@123") {
+    document.getElementById("loginPage").classList.remove("active");
+    document.getElementById("mainPage").classList.add("active");
+    document.body.classList.remove("login-bg");
+  } else {
+    alert("❌ Invalid Login");
+  }
+}
+
+function confirmExport() {
+  const pass = prompt("Enter password to export:");
+  if (pass === "Yaksh@321") exportToExcel();
+  else alert("❌ Wrong password!");
+}
+
+function exportToExcel() {
+  const table = document.getElementById("summaryTable");
+  const wb = XLSX.utils.table_to_book(table, { sheet: "Summary" });
+  const ws = wb.Sheets["Summary"];
+  const footerRow = Object.keys(ws).length + 1;
+  const footerNote = "Created by Yaksh Prajapati";
+  const footerCell = XLSX.utils.encode_cell({ r: footerRow, c: 0 });
+  ws[footerCell] = { t: "s", v: footerNote };
+  XLSX.writeFile(wb, "HSN_Summary_Report.xlsx");
+}
+
+document.getElementById('excelFile').addEventListener('change', function(e) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const data = new Uint8Array(e.target.result);
+    const workbook = XLSX.read(data, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+
+    const col = {
+      hsn: headers.findIndex(h => h.toLowerCase().includes("hsn")),
+      type: headers.findIndex(h => h.toLowerCase().includes("product type")),
+      qty: headers.findIndex(h => h.toLowerCase().includes("sales qty")),
+      gross: headers.findIndex(h => h.toLowerCase().includes("gross amount")),
+      net: headers.findIndex(h => h.toLowerCase().includes("net amount")),
+      tax: headers.findIndex(h => h.toLowerCase().includes("tax percent")),
+      igst: headers.findIndex(h => h.toLowerCase().includes("igst")),
+      cgst: headers.findIndex(h => h.toLowerCase().includes("cgst")),
+      sgst: headers.findIndex(h => h.toLowerCase().includes("sgst"))
+    };
+
+    const summary = {};
+    const taxWiseTotals = { taxable: {}, igst: {}, cgst: {}, sgst: {} };
+    let totalQty = 0, totalGross = 0, totalNet = 0, totalIGST = 0, totalCGST = 0, totalSGST = 0;
+
+    dataRows.forEach(row => {
+      const hsn = row[col.hsn];
+      const tax = row[col.tax];
+      const key = hsn + "-" + tax;
+      const type = (row[col.type] || "").trim();
+      const uqc = type.toLowerCase() === "fabric" ? "MTR-METERS" : "NOS-NUMBER";
+      if (!hsn || !type) return;
+
+      if (!summary[key]) {
+        summary[key] = {
+          hsn, type, tax, uqc, qty: 0, gross: 0, net: 0, igst: 0, cgst: 0, sgst: 0
+        };
+      }
+
+      const qty = parseFloat(row[col.qty]) || 0;
+      const gross = parseFloat(row[col.gross]) || 0;
+      const net = parseFloat(row[col.net]) || 0;
+      const igst = parseFloat(row[col.igst]) || 0;
+      const cgst = parseFloat(row[col.cgst]) || 0;
+      const sgst = parseFloat(row[col.sgst]) || 0;
+
+      summary[key].qty += qty;
+      summary[key].gross += gross;
+      summary[key].net += net;
+      summary[key].igst += igst;
+      summary[key].cgst += cgst;
+      summary[key].sgst += sgst;
+
+      taxWiseTotals.taxable[tax] = (taxWiseTotals.taxable[tax] || 0) + net;
+      taxWiseTotals.igst[tax] = (taxWiseTotals.igst[tax] || 0) + igst;
+      taxWiseTotals.cgst[tax] = (taxWiseTotals.cgst[tax] || 0) + cgst;
+      taxWiseTotals.sgst[tax] = (taxWiseTotals.sgst[tax] || 0) + sgst;
+
+      totalQty += qty;
+      totalGross += gross;
+      totalNet += net;
+      totalIGST += igst;
+      totalCGST += cgst;
+      totalSGST += sgst;
+    });
+
+    let html = `<table id="summaryTable"><thead><tr>
+      <th>HSN</th><th>Description</th><th>UQC</th><th>QTY</th>
+      <th>Total Amount</th><th>Tax Rate</th><th>Taxable Amount</th>
+      <th>IGST</th><th>CGST</th><th>SGST</th></tr></thead><tbody>`;
+
+    for (const key in summary) {
+      const s = summary[key];
+      html += `<tr>
+        <td>${s.hsn}</td><td>${s.type}</td><td>${s.uqc}</td>
+        <td>${s.qty.toFixed(2)}</td><td>${s.gross.toFixed(2)}</td><td>${s.tax}</td>
+        <td>${s.net.toFixed(2)}</td><td>${s.igst.toFixed(2)}</td>
+        <td>${s.cgst.toFixed(2)}</td><td>${s.sgst.toFixed(2)}</td>
+      </tr>`;
+    }
+
+    html += `<tr style="font-weight:bold; background:#eee;">
+      <td colspan="3">TOTAL</td>
+      <td>${totalQty.toFixed(2)}</td>
+      <td>${totalGross.toFixed(2)}</td>
+      <td>-</td>
+      <td>${totalNet.toFixed(2)}</td>
+      <td>${totalIGST.toFixed(2)}</td>
+      <td>${totalCGST.toFixed(2)}</td>
+      <td>${totalSGST.toFixed(2)}</td>
+    </tr></tbody></table>`;
+
+    document.getElementById("summaryOutput").innerHTML = html;
+
+    // TAX RATE-WISE TABLE
+    let summaryHtml = `<h3>🧾 Tax Rate-wise Summary</h3><table border="1" style="width:100%; border-collapse:collapse; margin-top:20px;">
+      <tr style="background:#343a40; color:white;">
+        <th>Tax %</th><th>Taxable Amount</th><th>IGST</th><th>CGST</th><th>SGST</th><th>TAX AMOUNT</th>
+      </tr>`;
+
+    const allTaxRates = Object.keys(taxWiseTotals.taxable)
+      .concat(Object.keys(taxWiseTotals.igst))
+      .concat(Object.keys(taxWiseTotals.cgst))
+      .concat(Object.keys(taxWiseTotals.sgst));
+
+    const uniqueRates = [...new Set(allTaxRates)].sort((a,b) => parseFloat(a)-parseFloat(b));
+    let t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+
+    uniqueRates.forEach(rate => {
+      const taxable = taxWiseTotals.taxable[rate] || 0;
+      const igst = taxWiseTotals.igst[rate] || 0;
+      const cgst = taxWiseTotals.cgst[rate] || 0;
+      const sgst = taxWiseTotals.sgst[rate] || 0;
+      const taxAmt = cgst + sgst;
+
+      t1 += taxable;
+      t2 += igst;
+      t3 += cgst;
+      t4 += sgst;
+
+      summaryHtml += `<tr>
+        <td>${rate}%</td>
+        <td>${taxable.toFixed(2)}</td>
+        <td>${igst.toFixed(2)}</td>
+        <td>${cgst.toFixed(2)}</td>
+        <td>${sgst.toFixed(2)}</td>
+        <td>${taxAmt.toFixed(2)}</td>
+      </tr>`;
+    });
+
+    summaryHtml += `<tr style="font-weight:bold; background:#eee;">
+      <td>TOTAL</td>
+      <td>${t1.toFixed(2)}</td>
+      <td>${t2.toFixed(2)}</td>
+      <td>${t3.toFixed(2)}</td>
+      <td>${t4.toFixed(2)}</td>
+      <td>${(t3 + t4).toFixed(2)}</td>
+    </tr>`;
+
+    summaryHtml += `</table>`;
+    document.getElementById("taxSummarySections").innerHTML = summaryHtml;
+  };
+  reader.readAsArrayBuffer(e.target.files[0]);
+});
+</script>
+
+</body>
+</html>
